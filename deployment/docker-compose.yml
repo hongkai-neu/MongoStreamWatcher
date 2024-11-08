@@ -1,0 +1,59 @@
+# Create a mongodb replica set for testing the change stream watcher
+# -  Two nodes: mongodb-primary and mongodb-secondary
+# -  mongo-init-replica.sh to initialize the replica set, named rs0
+# -  mongodb-watcher to watch the change stream in database "test" and collection "documents"
+
+name: mongodb-replica-with-change-stream-watcher
+services:
+  mongodb-primary:
+    container_name: mongodb-primary
+    image: mongo
+    restart: always
+    user: "${UID}:${GID}"
+    volumes:
+      - ./data-node:/data/db
+    command: mongod --replSet rs0 --bind_ip_all
+    stop_grace_period: 20s # expected shutdown time: 16s
+    # Uncomment to expose the port 27017
+    ports:
+      - "27017:27017"
+
+  mongodb-secondary:
+    container_name: mongodb-secondary
+    image: mongo
+    restart: always
+    user: "${UID}:${GID}"
+    volumes:
+      - ./data-node-secondary:/data/db
+    command: mongod --replSet rs0 --bind_ip_all
+    stop_grace_period: 20s # expected shutdown time: 16s
+    # Uncomment to expose the port 27018
+    ports:
+      - "27018:27017"
+
+  mongo-init-replica:
+    container_name: mongo-init-replica
+    image: alpine/mongosh
+    depends_on:
+      - mongodb-primary
+      - mongodb-secondary
+    volumes:
+      - ./mongo-init-replica.sh:/mongo-init-replica.sh
+    entrypoint: bash /mongo-init-replica.sh
+    restart: "no"
+
+  # Watcher for MongoDB change streams
+  mongodb-watcher:
+    container_name: mongodb-watcher
+    build:
+      context: ../
+      dockerfile: Dockerfile.mongodb-watcher
+    depends_on:
+      - mongodb-primary
+      - mongodb-secondary
+      - mongo-init-replica
+    environment:
+      - MONGODB_URI=mongodb://mongodb-primary:27017/?directConnection=true
+      - DATABASE_NAME=test
+      - COLLECTION_NAME=documents
+    restart: always
